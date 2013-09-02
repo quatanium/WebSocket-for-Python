@@ -83,7 +83,7 @@ class WebSocketBaseClient(WebSocket):
             # Simplified from CherryPy's code
             try:
                 family, socktype, proto, canonname, sa = socket.getaddrinfo(self.host, self.port,
-                                                                            socket.AF_UNSPEC,
+                                                                            socket.AF_INET,
                                                                             socket.SOCK_STREAM,
                                                                             0, socket.AI_PASSIVE)[0]
             except socket.gaierror:
