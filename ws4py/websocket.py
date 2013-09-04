@@ -210,6 +210,13 @@ class WebSocket(object):
             finally:
                 self.sock = None
 
+    def pinged(self, ping):
+        """
+        Ping message, as a :class:`messaging.PingControlMessage` instance,
+        received on the stream. Default behavior is to reply a Pong message.
+        """
+        self._write(self.stream.pong(ping.data))
+
     def ponged(self, pong):
         """
         Pong message, as a :class:`messaging.PongControlMessage` instance,
@@ -383,7 +390,7 @@ class WebSocket(object):
 
         if s.pings:
             for ping in s.pings:
-                self._write(s.pong(ping.data))
+                self.pinged(ping)
             s.pings = []
 
         if s.pongs:
