@@ -6,7 +6,8 @@ from ws4py.client import WebSocketBaseClient
 __all__ = ['WebSocketClient']
 
 class WebSocketClient(WebSocketBaseClient):
-    def __init__(self, url, protocols=None, extensions=None, heartbeat_freq=None, ssl_options=None):
+    def __init__(self, url, protocols=None, extensions=None, heartbeat_freq=None,
+                 ssl_options=None, headers=None):
         """
         .. code-block:: python
 
@@ -30,7 +31,8 @@ class WebSocketClient(WebSocketBaseClient):
               ws.close()
 
         """
-        WebSocketBaseClient.__init__(self, url, protocols, extensions, heartbeat_freq, ssl_options)
+        WebSocketBaseClient.__init__(self, url, protocols, extensions, heartbeat_freq,
+                                     ssl_options, headers=headers)
         self._th = threading.Thread(target=self.run, name='WebSocketClient')
         self._th.daemon = True
 
@@ -69,6 +71,12 @@ if __name__ == '__main__':
 
     class EchoClient(WebSocketClient):
         def opened(self):
+            def data_provider():
+                for i in range(0, 200, 25):
+                    yield "#" * i
+
+            self.send(data_provider())
+
             for i in range(0, 200, 25):
                 self.send("*" * i)
 
@@ -76,12 +84,13 @@ if __name__ == '__main__':
             print(("Closed down", code, reason))
 
         def received_message(self, m):
-            print("=> %d %s" % (len(m), str(m)))
+            print("#%d" % len(m))
             if len(m) == 175:
                 self.close(reason='bye bye')
 
     try:
-        ws = EchoClient('ws://localhost:9000/ws', protocols=['http-only', 'chat'])
+        ws = EchoClient('ws://localhost:9000/ws', protocols=['http-only', 'chat'],
+                        headers=[('X-Test', 'hello there')])
         ws.connect()
         ws.run_forever()
     except KeyboardInterrupt:
