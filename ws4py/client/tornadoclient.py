@@ -8,7 +8,8 @@ from ws4py.exc import HandshakeError
 __all__ = ['TornadoWebSocketClient']
 
 class TornadoWebSocketClient(WebSocketBaseClient):
-    def __init__(self, url, protocols=None, extensions=None, io_loop=None, ssl_options=None):
+    def __init__(self, url, protocols=None, extensions=None,
+                 io_loop=None, ssl_options=None, headers=None):
         """
         .. code-block:: python
 
@@ -30,7 +31,8 @@ class TornadoWebSocketClient(WebSocketBaseClient):
 
             ioloop.IOLoop.instance().start()
         """
-        WebSocketBaseClient.__init__(self, url, protocols, extensions, ssl_options=ssl_options)
+        WebSocketBaseClient.__init__(self, url, protocols, extensions,
+                                     ssl_options=ssl_options, headers=headers)
         self.ssl_options["do_handshake_on_connect"] = False
         if self.scheme == "wss":
             self.sock = ssl.wrap_socket(self.sock, **self.ssl_options)
@@ -46,6 +48,19 @@ class TornadoWebSocketClient(WebSocketBaseClient):
         self.io.set_close_callback(self.__connection_refused)
         self.io.connect((self.host, int(self.port)), self.__send_handshake)
 
+    def _write(self, b):
+        """
+        Trying to prevent a write operation
+        on an already closed websocket stream.
+
+        This cannot be bullet proof but hopefully
+        will catch almost all use cases.
+        """
+        if self.terminated:
+            raise RuntimeError("Cannot send on a terminated websocket")
+
+        self.io.write(b)
+
     def __connection_refused(self, *args, **kwargs):
         self.server_terminated = True
         self.closed(1005, 'Connection refused')
@@ -60,12 +75,12 @@ class TornadoWebSocketClient(WebSocketBaseClient):
         self.closed(1006, 'Connection closed during handshake')
 
     def __handshake_sent(self):
-        self.io.read_until("\r\n\r\n", self.__handshake_completed)
+        self.io.read_until(b"\r\n\r\n", self.__handshake_completed)
 
     def __handshake_completed(self, data):
         self.io.set_close_callback(None)
         try:
-            response_line, _, headers = data.partition('\r\n')
+            response_line, _, headers = data.partition(b'\r\n')
             self.process_response_line(response_line)
             protocols, extensions = self.process_handshake_header(headers)
         except HandshakeError:
@@ -117,7 +132,7 @@ if __name__ == '__main__':
     class MyClient(TornadoWebSocketClient):
         def opened(self):
             def data_provider():
-                for i in range(1, 200, 25):
+                for i in range(0, 200, 25):
                     yield "#" * i
 
             self.send(data_provider())
@@ -126,12 +141,13 @@ if __name__ == '__main__':
                 self.send("*" * i)
 
         def received_message(self, m):
-            print((m, len(str(m))))
-            if len(str(m)) == 175:
+            print("#%d" % len(m))
+            if len(m) == 175:
                 self.close()
 
         def closed(self, code, reason=None):
             ioloop.IOLoop.instance().stop()
+            print(("Closed down", code, reason))
 
     ws = MyClient('ws://localhost:9000/ws', protocols=['http-only', 'chat'])
     ws.connect()
