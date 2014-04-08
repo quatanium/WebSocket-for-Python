@@ -12,7 +12,7 @@ def run_cherrypy_server(host="127.0.0.1", port=9008):
 
     cherrypy.config.update({'server.socket_host': host,
                             'server.socket_port': port,
-                            'engine.autoreload_on': False,
+                            'engine.autoreload.on': False,
                             'log.screen': False})
     WebSocketPlugin(cherrypy.engine).subscribe()
     cherrypy.tools.websocket = WebSocketTool()
@@ -24,6 +24,7 @@ def run_cherrypy_server(host="127.0.0.1", port=9008):
 
     config = {
         '/': {
+            'tools.encode.on': False,
             'tools.websocket.on': True,
             'tools.websocket.handler_cls': EchoWebSocket
             }
@@ -47,6 +48,8 @@ def run_cherrypy_server_with_python3(host="127.0.0.1", port=9004):
     """
     Runs a CherryPy server on Python 3.x
     """
+    import wsaccel
+    wsaccel.patch_ws4py()
     run_cherrypy_server(host, port)
 
 
@@ -62,6 +65,8 @@ def run_gevent_server(host="127.0.0.1", port=9001):
     Runs a gevent server on Python 2.x
     """
     from gevent import monkey; monkey.patch_all()
+    import wsaccel
+    wsaccel.patch_ws4py()
     from ws4py.websocket import EchoWebSocket
     from ws4py.server.geventserver import WebSocketWSGIApplication, WSGIServer
 
@@ -76,6 +81,8 @@ def run_python3_asyncio(host="127.0.0.1", port=9009):
     Runs a server using asyncio and Python 3.3+
     """
     import asyncio
+    import wsaccel
+    wsaccel.patch_ws4py()
     from ws4py.async_websocket import EchoWebSocket
     from ws4py.server.tulipserver import WebSocketProtocol
     
