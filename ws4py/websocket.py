@@ -330,7 +330,7 @@ class WebSocket(object):
         self.client_terminated = self.server_terminated = True
 
         try:
-            if not s.closing:
+            if s.closing is None:
                 self.closed(1006, "Going away")
             else:
                 self.closed(s.closing.code, s.closing.reason)
@@ -369,7 +369,6 @@ class WebSocket(object):
                 self.close(s.closing.code, s.closing.reason)
             else:
                 self.client_terminated = True
-            s = None
             return False
 
         if s.errors:
@@ -377,7 +376,6 @@ class WebSocket(object):
                 logger.debug("Error message received (%d) '%s'" % (error.code, error.reason))
                 self.close(error.code, error.reason)
             s.errors = []
-            s = None
             return False
 
         if s.has_message:
@@ -385,7 +383,6 @@ class WebSocket(object):
             if s.message is not None:
                 s.message.data = None
                 s.message = None
-            s = None
             return True
 
         if s.pings:
@@ -398,7 +395,6 @@ class WebSocket(object):
                 self.ponged(pong)
             s.pongs = []
 
-        s = None
         return True
 
     def run(self):
