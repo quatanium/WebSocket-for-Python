@@ -1,14 +1,22 @@
 # -*- coding: utf-8 -*-
 import logging
 import socket
+import ssl
 import time
 import threading
 import types
 
+try:
+    from OpenSSL.SSL import Error as pyOpenSSLError
+except ImportError:
+    class pyOpenSSLError(Exception):
+        pass
+    
 from ws4py import WS_KEY, WS_VERSION
 from ws4py.exc import HandshakeError, StreamClosed
 from ws4py.streaming import Stream
-from ws4py.messaging import Message, PongControlMessage
+from ws4py.messaging import Message, PingControlMessage,\
+    PongControlMessage
 from ws4py.compat import basestring, unicode
 
 DEFAULT_READING_SIZE = 2
@@ -98,7 +106,12 @@ class WebSocket(object):
         """
         Underlying connection.
         """
-
+        
+        self._is_secure = hasattr(sock, '_ssl') or hasattr(sock, '_sslobj')
+        """
+        Tell us if the socket is secure or not.
+        """
+        
         self.client_terminated = False
         """
         Indicates if the client has been marked as terminated.
@@ -217,6 +230,13 @@ class WebSocket(object):
         """
         self._write(self.stream.pong(ping.data))
 
+    def ping(self, message):
+        """
+        Send a ping message to the remote peer.
+        The given `message` must be a unicode string.
+        """
+        self.send(PingControlMessage(message))
+
     def ponged(self, pong):
         """
         Pong message, as a :class:`messaging.PongControlMessage` instance,
@@ -235,6 +255,22 @@ class WebSocket(object):
         .. note:: You should override this method in your subclass.
         """
         pass
+
+    def unhandled_error(self, error):
+        """
+        Called whenever a socket, or an OS, error is trapped
+        by ws4py but not managed by it. The given error is
+        an instance of `socket.error` or `OSError`. 
+
+        Note however that application exceptions will not go
+        through this handler. Instead, do make sure you
+        protect your code appropriately in `received_message`
+        or `send`.
+
+        The default behaviour of this handler is to log
+        the error with a message.
+        """
+        logger.exception("Failed to receive data")
 
     def _write(self, b):
         """
@@ -284,6 +320,50 @@ class WebSocket(object):
         else:
             raise ValueError("Unsupported type '%s' passed to send()" % type(payload))
 
+    def _get_from_pending(self):
+        """
+        The SSL socket object provides the same interface
+        as the socket interface but behaves differently.
+
+        When data is sent over a SSL connection
+        more data may be read than was requested from by 
+        the ws4py websocket object.
+
+        In that case, the data may have been indeed read 
+        from the underlying real socket, but not read by the 
+        application which will expect another trigger from the 
+        manager's polling mechanism as if more data was still on the
+        wire. This will happen only when new data is 
+        sent by the other peer which means there will be
+        some delay before the initial read data is handled
+        by the application.
+
+        Due to this, we have to rely on a non-public method
+        to query the internal SSL socket buffer if it has indeed
+        more data pending in its buffer.
+
+        Now, some people in the Python community 
+        `discourage <https://bugs.python.org/issue21430>`_
+        this usage of the ``pending()`` method because it's not
+        the right way of dealing with such use case. They advise
+        `this approach <https://docs.python.org/dev/library/ssl.html#notes-on-non-blocking-sockets>`_
+        instead. Unfortunately, this applies only if the
+        application can directly control the poller which is not
+        the case with the WebSocket abstraction here.
+
+        We therefore rely on this `technic <http://stackoverflow.com/questions/3187565/select-and-ssl-in-python>`_
+        which seems to be valid anyway.
+
+        This is a bit of a shame because we have to process 
+        more data than what wanted initially.
+        """
+        data = b""
+        pending = self.sock.pending()
+        while pending:
+            data += self.sock.recv(pending)
+            pending = self.sock.pending()
+        return data
+        
     def once(self):
         """
         Performs the operation of reading from the underlying
@@ -305,8 +385,11 @@ class WebSocket(object):
 
         try:
             b = self.sock.recv(self.reading_buffer_size)
-        except socket.error:
-            logger.exception("Failed to receive data")
+            # This will only make sense with secure sockets.
+            if self._is_secure:
+                b += self._get_from_pending()
+        except (socket.error, OSError, pyOpenSSLError) as e:
+            self.unhandled_error(e)
             return False
         else:
             if not self.process(b):
